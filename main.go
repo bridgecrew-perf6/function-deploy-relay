@@ -32,9 +32,11 @@ func main() {
 	}
 	// Create empty slice for function names.
 	functionapps := []string{}
+
 	// Set the regex to search for resource group name.
-	matched := regexp.MustCompile(`\"serverFarmId\":"\/subscriptions\/.*\/resourceGroups\/mxi-dev`)
-	// Loop through all functions.
+	matched := regexp.MustCompile(`\"serverFarmId\":"\/subscriptions\/.*\/resourceGroups\/mxi-dev`) //TODO envs
+
+	// Loop through all functions, adding matches into the slice.
 	for notDone := true; notDone; notDone = faList.NotDone() {
 		data := faList.Value()
 		jsonData, err := json.Marshal(data)
@@ -58,14 +60,28 @@ func main() {
 	fmt.Println(functionapps)
 
 	// Check if source control has been set.
-	// for _, faName := range functionapps {
-	// 	faSource, err := faClient.GetSourceControl(context.Background(), "mxi-dev", faName) // TODO: envs
-	// 	if err != nil {
-	// 		log.Println(err)
+	// 	for _, faName := range functionapps {
+	// 		faSource, err := faClient.GetSourceControl(context.Background(), "mxi-dev", faName) // TODO: envs
+	// 		if err != nil {
+	// 			log.Println(err)
+	// 		}
+	// 		jsonData, _ := json.Marshal(faSource)
+	// 		log.Println(faName, " : ", string(jsonData))
 	// 	}
-	// 	jsonData, _ := json.Marshal(faSource)
-	// 	fmt.Println(string(jsonData))
 	// }
+
+	// Get publishing user for all functionapps.
+	faMap := make(map[string]string)
+
+	for _, faName := range functionapps {
+		faUser, _ := faClient.ListPublishingCredentials(context.Background(), "mxi-dev", faName)
+		user, _ := faUser.Result(faClient)
+		jsonUri, _ := json.Marshal(user.ScmURI)
+
+		faMap[faName] = string(jsonUri)
+		// fmt.Println(faName, " = ", string(jsonUri))
+	}
+	fmt.Println(faMap)
 }
 
 func LogRequest() autorest.PrepareDecorator {
