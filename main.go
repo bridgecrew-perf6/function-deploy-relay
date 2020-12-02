@@ -5,28 +5,70 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
-	"net/http/httputil"
+	"os"
 	"regexp"
 
 	"github.com/Azure/azure-sdk-for-go/services/web/mgmt/2020-06-01/web"
-	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/azure/auth"
 )
 
 func main() {
-	faClient := web.NewAppsClient("cbce1d09-3ba7-4d48-b220-3e0e2059a9f8") // TODO: envs
-	// faClient.RequestInspector = LogRequest()
-	// faClient.ResponseInspector = LogResponse()
+	// Verify environment variables exist.
+	// AZ_RG can contain multiple resource groups seperated by a comma.
+	envs := CheckEnvs("AZ_RG", "AZ_SUB_ID")
 
+	rg, subID := envs["AZ_RG"], envs["AZ_SUB_ID"]
+
+	faClient := web.NewAppsClient(subID)
 	// Auth.
 	authorizer, err := auth.NewAuthorizerFromEnvironment()
 	if err == nil {
 		faClient.Authorizer = authorizer
 	}
 
-	// List all Function Apps in resource group.
-	faList, err := faClient.ListComplete(context.Background())
+	// List function names for all resource groups.
+	x := regexp.MustCompile(`,`)
+	rgs := x.Split(rg, -1)
+	for i, rGroup := range rgs {
+		fmt.Println("Listing function apps for resource group: ", i+1, "-", rGroup)
+		GetCreds(rGroup, ListFuncs(rGroup, faClient), faClient)
+	}
+
+	// Check if source control has been set.
+	// 	for _, faName := range functionapps {
+	// 		faSource, err := faClient.GetSourceControl(context.Background(), rg, faName)
+	// 		if err != nil {
+	// 			log.Println(err)
+	// 		}
+	// 		jsonData, _ := json.Marshal(faSource)
+	// 		log.Println(faName, " : ", string(jsonData))
+	// 	}
+	// }
+
+}
+
+// CheckEnvs - verify envs are set.
+func CheckEnvs(envs ...string) map[string]string {
+	fmt.Println("Checking for environment variables:")
+	envMap := make(map[string]string)
+	for i, env := range envs {
+		val, ok := os.LookupEnv(envs[i])
+		if !ok {
+			fmt.Printf("Environment variable: %s not set\n", env)
+			os.Exit(1)
+		} else {
+			envMap[env] = val
+			fmt.Printf("%s = %s\n", env, val)
+		}
+	}
+	fmt.Println("\n")
+	return envMap
+}
+
+// ListFuncs - List all Function Apps in resource group.
+func ListFuncs(rg string, client web.AppsClient) []string {
+
+	faList, err := client.ListComplete(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -34,7 +76,7 @@ func main() {
 	functionapps := []string{}
 
 	// Set the regex to search for resource group name.
-	matched := regexp.MustCompile(`\"serverFarmId\":"\/subscriptions\/.*\/resourceGroups\/mxi-dev`) //TODO envs
+	matched := regexp.MustCompile(`\"serverFarmId\":"\/subscriptions\/.*\/resourceGroups\/` + rg)
 
 	// Loop through all functions, adding matches into the slice.
 	for notDone := true; notDone; notDone = faList.NotDone() {
@@ -44,7 +86,6 @@ func main() {
 			log.Fatal(err)
 		}
 
-		// fmt.Println("jsonData: ", string(jsonData))
 		// If the resource group is found, add the function to the slice.
 		if matched.MatchString(string(jsonData)) == true {
 			functionapps = append(functionapps, *data.Name)
@@ -57,59 +98,24 @@ func main() {
 		faList.Next()
 	}
 
-	fmt.Println(functionapps)
+	fmt.Println(functionapps, "\n")
+	return functionapps
 
-	// Check if source control has been set.
-	// 	for _, faName := range functionapps {
-	// 		faSource, err := faClient.GetSourceControl(context.Background(), "mxi-dev", faName) // TODO: envs
-	// 		if err != nil {
-	// 			log.Println(err)
-	// 		}
-	// 		jsonData, _ := json.Marshal(faSource)
-	// 		log.Println(faName, " : ", string(jsonData))
-	// 	}
-	// }
+}
 
-	// Get publishing user for all functionapps.
+// GetCreds - publishing user for all functionapps.
+func GetCreds(rg string, functionapps []string, client web.AppsClient) map[string]string {
+
 	faMap := make(map[string]string)
 
 	for _, faName := range functionapps {
-		faUser, _ := faClient.ListPublishingCredentials(context.Background(), "mxi-dev", faName)
-		user, _ := faUser.Result(faClient)
+		faUser, _ := client.ListPublishingCredentials(context.Background(), rg, faName)
+		user, _ := faUser.Result(client)
 		jsonUri, _ := json.Marshal(user.ScmURI)
 
 		faMap[faName] = string(jsonUri)
 		// fmt.Println(faName, " = ", string(jsonUri))
 	}
-	fmt.Println(faMap)
-}
-
-func LogRequest() autorest.PrepareDecorator {
-	return func(p autorest.Preparer) autorest.Preparer {
-		return autorest.PreparerFunc(func(r *http.Request) (*http.Request, error) {
-			r, err := p.Prepare(r)
-			if err != nil {
-				log.Println(err)
-			}
-			dump, _ := httputil.DumpRequestOut(r, true)
-			fmt.Println("##### REQUEST #####")
-			log.Println(string(dump))
-			return r, err
-		})
-	}
-}
-
-func LogResponse() autorest.RespondDecorator {
-	return func(p autorest.Responder) autorest.Responder {
-		return autorest.ResponderFunc(func(r *http.Response) error {
-			err := p.Respond(r)
-			if err != nil {
-				log.Println(err)
-			}
-			dump, _ := httputil.DumpResponse(r, true)
-			fmt.Println("##### RESPONSE #####")
-			log.Println(string(dump))
-			return err
-		})
-	}
+	fmt.Println(faMap, "\n")
+	return faMap
 }
