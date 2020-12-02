@@ -1,16 +1,22 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"regexp"
+	"sync"
 
 	"github.com/Azure/azure-sdk-for-go/services/web/mgmt/2020-06-01/web"
 	"github.com/Azure/go-autorest/autorest/azure/auth"
 )
+
+var wg sync.WaitGroup
 
 func main() {
 	// Verify environment variables exist.
@@ -26,25 +32,36 @@ func main() {
 		faClient.Authorizer = authorizer
 	}
 
-	// List function names for all resource groups.
+	// List function names for all resource groups, retreive publishing credentials, then trigger new deployments.
 	x := regexp.MustCompile(`,`)
 	rgs := x.Split(rg, -1)
 	for i, rGroup := range rgs {
 		fmt.Println("Listing function apps for resource group: ", i+1, "-", rGroup)
-		GetCreds(rGroup, ListFuncs(rGroup, faClient), faClient)
+		azFuncs := ListFuncs(rGroup, faClient)
+		// CheckSource(rGroup, azFuncs, faClient)
+		creds := GetCreds(rGroup, azFuncs, faClient)
+
+		// Create channel
+		ch := make(chan string, len(creds))
+
+		// Trigger deployment for each function.
+		for key, cred := range creds {
+			log.Println("Deploying to function: ", key)
+			go Deploy(key, "git@github.com:EmpactIT/MxI.git", cred, ch)
+			wg.Add(1)
+		}
+		fmt.Println("\n")
+
+		// Wait for replies and close the channel.
+		wg.Wait()
+		close(ch)
+
+		// Print responses.
+		for x := range ch {
+			fmt.Println(x)
+		}
+
 	}
-
-	// Check if source control has been set.
-	// 	for _, faName := range functionapps {
-	// 		faSource, err := faClient.GetSourceControl(context.Background(), rg, faName)
-	// 		if err != nil {
-	// 			log.Println(err)
-	// 		}
-	// 		jsonData, _ := json.Marshal(faSource)
-	// 		log.Println(faName, " : ", string(jsonData))
-	// 	}
-	// }
-
 }
 
 // CheckEnvs - verify envs are set.
@@ -114,8 +131,49 @@ func GetCreds(rg string, functionapps []string, client web.AppsClient) map[strin
 		jsonUri, _ := json.Marshal(user.ScmURI)
 
 		faMap[faName] = string(jsonUri)
-		// fmt.Println(faName, " = ", string(jsonUri))
 	}
 	fmt.Println(faMap, "\n")
 	return faMap
+}
+
+// CheckSource - Check if source control has been set.
+func CheckSource(name string, rg string, functionapps []string, client web.AppsClient) {
+
+	for _, faName := range functionapps {
+		faSource, err := client.GetSourceControl(context.Background(), rg, faName)
+		if err != nil {
+			log.Println(err)
+		}
+		jsonData, _ := json.Marshal(faSource)
+		log.Println(faName, " : ", string(jsonData))
+	}
+	fmt.Println("\n")
+}
+
+// Deploy - Trigger deploy via the Azure Kudu service.
+func Deploy(name, repoURL, publishURL string, ch chan<- string) {
+	requestBody, err := json.Marshal(map[string]string{
+		"format": "basic",
+		"url":    "git@github.com:EmpactIT/MxI.git",
+	})
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	resp, err := http.Post("https://$input-connect-empactit-dev:ylY2WGfoo2KKF4ewL4aw2RMFfwl77bBTrLXtKNbLa3kNfWCWFRpZ5uqo9W3n@input-connect-empactit-dev.scm.azurewebsites.net/deploy", "application/json", bytes.NewBuffer(requestBody))
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	ch <- name + ":" + string(resp.Status) + string(body) + "\n"
+	wg.Done()
+	return
+
 }
