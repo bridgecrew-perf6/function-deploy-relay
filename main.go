@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/Azure/azure-sdk-for-go/services/web/mgmt/2020-06-01/web"
@@ -21,9 +22,9 @@ var wg sync.WaitGroup
 func main() {
 	// Verify environment variables exist.
 	// AZ_RG can contain multiple resource groups seperated by a comma.
-	envs := CheckEnvs("AZ_RG", "AZ_SUB_ID")
+	envs := CheckEnvs("AZ_RG", "AZ_SUB_ID", "GIT_URL")
 
-	rg, subID := envs["AZ_RG"], envs["AZ_SUB_ID"]
+	rg, subID, repoURL := envs["AZ_RG"], envs["AZ_SUB_ID"], envs["GIT_URL"]
 
 	faClient := web.NewAppsClient(subID)
 	// Auth.
@@ -47,7 +48,7 @@ func main() {
 		// Trigger deployment for each function.
 		for key, cred := range creds {
 			log.Println("Deploying to function: ", key)
-			go Deploy(key, "git@github.com:EmpactIT/MxI.git", cred, ch)
+			go Deploy(key, repoURL, cred, ch)
 			wg.Add(1)
 		}
 		fmt.Println("\n")
@@ -130,7 +131,8 @@ func GetCreds(rg string, functionapps []string, client web.AppsClient) map[strin
 		user, _ := faUser.Result(client)
 		jsonUri, _ := json.Marshal(user.ScmURI)
 
-		faMap[faName] = string(jsonUri)
+		// Remove double quotes from URI and add it to the map.
+		faMap[faName] = strings.Trim(string(jsonUri), "\"")
 	}
 	fmt.Println(faMap, "\n")
 	return faMap
@@ -154,14 +156,15 @@ func CheckSource(name string, rg string, functionapps []string, client web.AppsC
 func Deploy(name, repoURL, publishURL string, ch chan<- string) {
 	requestBody, err := json.Marshal(map[string]string{
 		"format": "basic",
-		"url":    "git@github.com:EmpactIT/MxI.git",
+		"url":    repoURL,
 	})
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	resp, err := http.Post("https://$input-connect-empactit-dev:ylY2WGfoo2KKF4ewL4aw2RMFfwl77bBTrLXtKNbLa3kNfWCWFRpZ5uqo9W3n@input-connect-empactit-dev.scm.azurewebsites.net/deploy", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post(publishURL+"/deploy", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
+		fmt.Println(publishURL + "/deploy")
 		log.Fatalln(err)
 	}
 
