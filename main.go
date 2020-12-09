@@ -8,12 +8,14 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/Azure/azure-sdk-for-go/services/web/mgmt/2020-06-01/web"
+	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/azure/auth"
 )
 
@@ -32,6 +34,9 @@ func main() {
 	if err == nil {
 		faClient.Authorizer = authorizer
 	}
+
+	// faClient.RequestInspector = LogRequest()
+	// faClient.ResponseInspector = LogResponse()
 
 	// List function names for all resource groups, retreive publishing credentials, then trigger new deployments.
 	x := regexp.MustCompile(`,`)
@@ -179,4 +184,32 @@ func Deploy(name, repoURL, publishURL string, ch chan<- string) {
 	wg.Done()
 	return
 
+}
+
+func LogRequest() autorest.PrepareDecorator {
+	return func(p autorest.Preparer) autorest.Preparer {
+		return autorest.PreparerFunc(func(r *http.Request) (*http.Request, error) {
+			r, err := p.Prepare(r)
+			if err != nil {
+				log.Println(err)
+			}
+			dump, _ := httputil.DumpRequestOut(r, true)
+			log.Println(string(dump))
+			return r, err
+		})
+	}
+}
+
+func LogResponse() autorest.RespondDecorator {
+	return func(p autorest.Responder) autorest.Responder {
+		return autorest.ResponderFunc(func(r *http.Response) error {
+			err := p.Respond(r)
+			if err != nil {
+				log.Println(err)
+			}
+			dump, _ := httputil.DumpResponse(r, true)
+			log.Println(string(dump))
+			return err
+		})
+	}
 }
