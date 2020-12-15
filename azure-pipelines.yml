@@ -1,9 +1,6 @@
 trigger:
 - main
 
-variables:
-  AZ_RG: $(AZ_RG)
-
 steps:
 - task: DockerCompose@0
   displayName: Run FDR container
@@ -12,3 +9,5 @@ steps:
     dockerComposeFile: 'docker-compose.yml'
     action: 'Run a Docker Compose command'
     dockerComposeCommand: 'up'
+  env:
+    AZ_RG: $(AZ_RG)
