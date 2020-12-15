@@ -1,7 +1,11 @@
-# Starter pipeline
+trigger:
+- main
+
+steps:
 - task: DockerCompose@0
+  displayName: Run FDR container
   inputs:
     containerregistrytype: 'Container Registry'
-    dockerComposeFile: '**/docker-compose.yml'
+    dockerComposeFile: 'docker-compose.yml'
     action: 'Run a Docker Compose command'
-    dockerComposeCommand: 'docker-compose up'
+    dockerComposeCommand: 'up'
