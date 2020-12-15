@@ -1,6 +1,9 @@
 trigger:
 - main
 
+variables:
+  AZ_RG: $(AZ_RG)
+
 steps:
 - task: DockerCompose@0
   displayName: Run FDR container
