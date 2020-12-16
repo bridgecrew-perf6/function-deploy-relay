@@ -5,7 +5,7 @@ services:
     environment:
       - AZURE_TENANT_ID
       - AZURE_CLIENT_ID
-      - AZURE_SECRET_ID
+      - AZURE_CLIENT_SECRET
       - GIT_URL
       - AZ_RG
       - AZ_SUB_ID
