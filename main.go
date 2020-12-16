@@ -24,7 +24,7 @@ var wg sync.WaitGroup
 func main() {
 	// Verify environment variables exist.
 	// AZ_RG can contain multiple resource groups seperated by a comma.
-	envs := CheckEnvs("AZ_RG", "AZ_SUB_ID", "GIT_URL", "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET")
+	envs := CheckEnvs("AZ_RG", "AZ_SUB_ID", "GIT_URL", "AZURE_TENANT_ID", "AZURE_CLIENT_SECRET", "AZURE_CLIENT_ID")
 
 	rg, subID, repoURL := envs["AZ_RG"], envs["AZ_SUB_ID"], envs["GIT_URL"]
 
