@@ -1,7 +1,7 @@
 version: "3.3"
 services:
   fdr:
-    image: joeydouglas/fdr:v0.3
+    image: joeydouglas/fdr:v0.4
     environment:
       - AZURE_TENANT_ID
       - AZURE_CLIENT_ID
