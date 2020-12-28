@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -13,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/services/web/mgmt/2020-06-01/web"
 	"github.com/Azure/go-autorest/autorest"
@@ -42,7 +42,7 @@ func main() {
 	x := regexp.MustCompile(`,`)
 	rgs := x.Split(rg, -1)
 	for i, rGroup := range rgs {
-		fmt.Println("Listing function apps for resource group: ", i+1, "-", rGroup)
+		fmt.Println("Function apps for resource group: ", "(", i+1, ")", rGroup, ":")
 		azFuncs := ListFuncs(rGroup, faClient)
 		// CheckSource(rGroup, azFuncs, faClient)
 		creds := GetCreds(rGroup, azFuncs, faClient)
@@ -56,6 +56,7 @@ func main() {
 			go Deploy(key, repoURL, cred, ch)
 			wg.Add(1)
 		}
+		fmt.Println("\n")
 		fmt.Println("\n")
 
 		// Wait for replies and close the channel.
@@ -121,7 +122,7 @@ func ListFuncs(rg string, client web.AppsClient) []string {
 		faList.Next()
 	}
 
-	fmt.Println(functionapps, "\n")
+	fmt.Println("\n")
 	return functionapps
 
 }
@@ -139,7 +140,7 @@ func GetCreds(rg string, functionapps []string, client web.AppsClient) map[strin
 		// Remove double quotes from URI and add it to the map.
 		faMap[faName] = strings.Trim(string(jsonUri), "\"")
 	}
-	fmt.Println(faMap, "\n")
+	// fmt.Println(faMap, "\n")
 	return faMap
 }
 
@@ -159,6 +160,7 @@ func CheckSource(name string, rg string, functionapps []string, client web.AppsC
 
 // Deploy - Trigger deploy via the Azure Kudu service.
 func Deploy(name, repoURL, publishURL string, ch chan<- string) {
+	// Marshal JSON
 	requestBody, err := json.Marshal(map[string]string{
 		"format": "basic",
 		"url":    repoURL,
@@ -167,23 +169,38 @@ func Deploy(name, repoURL, publishURL string, ch chan<- string) {
 		log.Fatalln(err)
 	}
 
+	// Sync
+	resp := Post(name, publishURL, requestBody)
+
+	// Retry sync
+	for i := 1; i <= 3; i++ {
+		if resp.StatusCode != 200 {
+			fmt.Println(i, " - Retrying ", name, ": ", string(resp.Status), "\n")
+			time.Sleep(5 * time.Second)
+			resp = Post(name, publishURL, requestBody)
+			if resp.StatusCode != 200 && i == 3 {
+				log.Println("DEPLOY SYNC FAILED for ", name)
+			}
+		}
+	}
+
+	ch <- name + ":" + string(resp.Status) + "\n"
+	wg.Done()
+	return
+
+}
+
+// Send POST to Kudu.
+func Post(name, publishURL string, requestBody []byte) *http.Response {
+	// Send POST
 	resp, err := http.Post(publishURL+"/deploy", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		fmt.Println(publishURL + "/deploy")
 		log.Fatalln(err)
 	}
-
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	ch <- name + ":" + string(resp.Status) + string(body) + "\n"
-	wg.Done()
-	return
-
+	return resp
 }
 
 func LogRequest() autorest.PrepareDecorator {
